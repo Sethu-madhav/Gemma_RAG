@@ -1,31 +1,27 @@
 import torch
 import os
 from transformers import AutoTokenizer, AutoModelForCausalLM
-from transformers.utils.quantization_config import BitsAndBytesConfig
 from transformers.pipelines import pipeline
 from langchain_huggingface import HuggingFacePipeline, HuggingFaceEmbeddings
 from langchain.prompts import PromptTemplate
-from langchain_community.document_loaders import DirectoryLoader, PyPDFLoader, TextLoader
+from langchain_community.document_loaders import DirectoryLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import FAISS
 from langchain.chains import RetrievalQA
 
+# --- optimization : Enable TensorFloat32 for better performance
+torch.set_float32_matmul_precision('high')
+
 # --- 1. SET UP MODEL AND TOKENIZER ---
 print("--- Setting up model and tokenizer ---")
-model_id = "google/gemma-1.1-2b-it"
-bnb_config = BitsAndBytesConfig(
-    load_in_4bit=True,
-    bnb_4bit_quant_type="nf4",
-    bnb_4bit_compute_dtype=torch.bfloat16
-)
-
-tokenizer = AutoTokenizer.from_pretrained(model_id, token=True) # Added token=True for authentication
+model_id = "google/gemma-3-4b-it"
 model = AutoModelForCausalLM.from_pretrained(
     model_id,
-    quantization_config=bnb_config,
+    torch_dtype = torch.bfloat16,
     device_map="auto",
-    token=True # Added token=True for authentication
+    token=True 
 )
+tokenizer = AutoTokenizer.from_pretrained(model_id, token=True) # Added token=True for authentication
 print("Model and tokenizer setup complete.")
 
 # --- 2. CREATE A TEXT GENERATION PIPELINE ---
@@ -35,10 +31,8 @@ text_generation_pipeline = pipeline(
     model=model,
     tokenizer=tokenizer,
     max_new_tokens=1024,
-    top_k=50,
     top_p=0.95,
     temperature=0.1,
-    repetition_penalty=1.15
 )
 
 llm = HuggingFacePipeline(pipeline=text_generation_pipeline)
@@ -49,17 +43,13 @@ print("Text generation pipeline created.")
 if __name__ == "__main__":
     print("\n--- Starting RAG pipeline build ---")
 
-    # --- 3. LOAD DOCUMENTS (REVISED LOGIC) ---
+    # --- 3. LOAD DOCUMENTS ---
     print("--- Loading documents ---")
     documents_dir = './documents/'
-    # Load PDF files
-    # pdf_loader = DirectoryLoader(documents_dir, glob="**/*.pdf", loader_cls=PyPDFLoader)
-    # Load TXT files
-    txt_loader = DirectoryLoader(documents_dir, glob="**/*.txt", loader_cls=TextLoader)
-    
-    # pdf_documents = pdf_loader.load()
-    txt_documents = txt_loader.load()
-    documents = txt_documents # + pdf_documents 
+
+    # Load docs
+    loader = DirectoryLoader(documents_dir, show_progress=True, use_multithreading=True)
+    documents = loader.load()
     
     if not documents:
         print("No documents found. Please add .txt or .pdf files to the 'documents' folder.")
@@ -84,13 +74,17 @@ if __name__ == "__main__":
 
     # --- 6. CREATE THE RETRIEVALQA CHAIN (REVISED LOGIC) ---
     print("--- Creating RetrievalQA chain ---")
-    template = """
+    template = """<start_of_turn>user
     Use the following pieces of context to answer the question at the end.
     If you don't know the answer, just say that you don't know, don't try to make up an answer.
     Use five sentences maximum and keep the answer as concise as possible.
-    Context: {context}
-    Question: {question}
-    Helpful Answer:
+    
+    CONTEXT: 
+    {context}
+
+    QUESTION: 
+    {question}<end_of_turn>
+    <start_of_turn>model
     """
     QA_CHAIN_PROMPT = PromptTemplate.from_template(template)
     
@@ -123,4 +117,4 @@ if __name__ == "__main__":
 
         # Print the answer
         print("\nAnswer:")
-        print(result["result"])
+        print(result["result"].strip())

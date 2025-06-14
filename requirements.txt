@@ -1,0 +1,28 @@
+# core ML/DL frameworks
+torch
+torchvision
+torchaudio
+
+# hf libraries
+transformers
+accelerate
+bitsandbytes
+sentence-transformers
+
+# langchain framework
+langchain
+langchain_community
+langchain_huggingface
+
+# vector store
+faiss-cpu
+faiss-gpu
+
+# document loading 
+unstructured[pdf]
+pypdf
+
+# other
+numpy
+tqdm
+huggingface-hub
